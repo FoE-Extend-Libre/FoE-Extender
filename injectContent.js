@@ -1,1 +1,157 @@
-{let e={main:["once"],vendor:["once","primed"],internal:["once","primed"]};const t=Date.now().toString(36)+Date.now();function scriptLoaded(n,i){e[i].splice(e[i].indexOf(n),1),1==e.main.length&&(e.main.splice(e.main.indexOf("once"),1),window.dispatchEvent(new CustomEvent(t)))}async function sleep(e){return new Promise((t=>setTimeout(t,e)))}function inject(n=chrome.runtime.getURL("")){function i(t,n="base",i,o){return new Promise((async(r,a)=>{let c=document.createElement("script");if(c.src=t,"main"===n&&(c.setAttribute("data-url",i),c.setAttribute("data-id",o),c.setAttribute("id","injector")),(t.includes("main.js")||t.includes("loader.js"))&&c.setAttribute("type","module"),e[n]&&e[n].push(t),c.addEventListener("load",(function(){e[n]&&scriptLoaded(t,n),this.remove(),r()})),c.addEventListener("error",(function(){this.remove(),a()})),document.documentElement)document.documentElement.appendChild(c);else{for(;!document.head&&!document.documentElement;)await sleep(0);(document.head||document.documentElement).appendChild(c)}}))}async function o(e){const t=await fetch(e);if(200!==t.status)throw"Error loading json file "+e;return t.json()}const r=new Promise((e=>{window.addEventListener(t,(t=>{e()}),{capture:!1,once:!0,passive:!0})}));chrome.runtime.getManifest().version;!async function(e){try{const t=chrome.runtime.id;await i(`${e}src/web/drawer.js`,"main",e,t);const n=o(`${e}vendor.json`),a=o(`${e}internal.json`);await r;const c=await n;for(let t=0;t<c.length;t++)try{await i(`${e}src/vendor/${c[t]}.js`,"vendor")}catch(e){}scriptLoaded("primed","vendor");const s=await a;for(let t=0;t<s.length;t++){const n=s[t];if("string"==typeof n)await i(`${e}src/web/${s[t]}.js`,"internal");else{const e=n[0],t=n[1];await i(`${t}/web/${e}.js`,"internal")}}scriptLoaded("primed","internal")}catch(e){}}(n);let a=setInterval((function(){if(null!==document.head){let e=["common","bootstrap"];for(let t in e){if(!e.hasOwnProperty(t))break;let i=document.createElement("link");i.href=n+`src/web/css/${e[t]}.css`,i.rel="stylesheet",document.head.appendChild(i)}clearInterval(a)}}),0)}inject()}
+// Tracks script loading progress for different categories
+const scriptQueues = {
+  main: ['once'],        // Main scripts (initial placeholder)
+  vendor: ['once', 'primed'], // Vendor scripts (primed = ready to load)
+  internal: ['once', 'primed'] // Internal scripts (primed = ready to load)
+};
+
+// Unique event ID for signaling main script completion
+const mainCompletedEventId = Date.now().toString(36) + Date.now();
+
+// Handles script completion and triggers main completion event
+function handleScriptLoaded(scriptUrl, queueType) {
+  const queue = scriptQueues[queueType];
+  const index = queue.indexOf(scriptUrl);
+  if (index > -1) queue.splice(index, 1);
+
+  if (queueType === 'main' && queue.length === 1 && queue[0] === 'once') {
+    queue.splice(queue.indexOf('once'), 1);
+    window.dispatchEvent(new CustomEvent(mainCompletedEventId));
+  }
+}
+
+// Utility delay function
+async function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// Main injection function
+function initializeInjector(extensionBaseUrl = chrome.runtime.getURL("")) {
+  // Injects a script and tracks its loading status
+  async function injectScript(url, queueType = 'base', dataUrl, dataId) {
+    return new Promise(async (resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = url;
+
+      if (queueType === 'main') {
+        script.setAttribute('data-url', dataUrl);
+        script.setAttribute('data-id', dataId);
+        script.setAttribute('id', 'injector');
+      }
+
+      if (url.includes('main.js') || url.includes('loader.js')) {
+        script.setAttribute('type', 'module');
+      }
+
+      if (scriptQueues[queueType]) {
+        scriptQueues[queueType].push(url);
+      }
+
+      script.addEventListener('load', () => {
+        if (scriptQueues[queueType]) handleScriptLoaded(url, queueType);
+        script.remove();
+        resolve();
+      });
+
+      script.addEventListener('error', () => {
+        script.remove();
+        reject();
+      });
+
+      // Find suitable injection point
+      let parentNode;
+      if (document.documentElement) {
+        parentNode = document.documentElement;
+      } else {
+        while (!document.head && !document.documentElement) await sleep(0);
+        parentNode = document.head || document.documentElement;
+      }
+      parentNode.appendChild(script);
+    });
+  }
+
+  // Fetches JSON manifest files
+  async function fetchManifest(url) {
+    const response = await fetch(url);
+    if (response.status !== 200) throw new Error(`Failed to load: ${url}`);
+    return response.json();
+  }
+
+  // Creates promise that resolves when main scripts complete
+  const mainScriptsLoaded = new Promise(resolve => {
+    window.addEventListener(mainCompletedEventId, resolve, { 
+      once: true,
+      passive: true
+    });
+  });
+
+  // CSS injection handler
+  const cssInjector = setInterval(() => {
+    if (document.head) {
+      ['common', 'bootstrap'].forEach(file => {
+        const link = document.createElement('link');
+        link.href = `${extensionBaseUrl}src/web/css/${file}.css`;
+        link.rel = 'stylesheet';
+        document.head.appendChild(link);
+      });
+      clearInterval(cssInjector);
+    }
+  }, 0);
+
+  // Main injection sequence
+  (async function() {
+    try {
+      const extensionId = chrome.runtime.id;
+      
+      // Load core script
+      await injectScript(
+        `${extensionBaseUrl}src/web/drawer.js`,
+        'main',
+        extensionBaseUrl,
+        extensionId
+      );
+
+      // Load manifests
+      const vendorManifest = await fetchManifest(`${extensionBaseUrl}vendor.json`);
+      const internalManifest = await fetchManifest(`${extensionBaseUrl}internal.json`);
+
+      // Wait for main scripts to complete
+      await mainScriptsLoaded;
+
+      // Load vendor scripts
+      const vendorScripts = await vendorManifest;
+      for (const script of vendorScripts) {
+        try {
+          await injectScript(
+            `${extensionBaseUrl}src/vendor/${script}.js`,
+            'vendor'
+          );
+        } catch (error) {
+          console.error('Vendor script failed:', script, error);
+        }
+      }
+      handleScriptLoaded('primed', 'vendor');
+
+      // Load internal scripts
+      const internalScripts = await internalManifest;
+      for (const entry of internalScripts) {
+        if (typeof entry === 'string') {
+          await injectScript(
+            `${extensionBaseUrl}src/web/${entry}.js`,
+            'internal'
+          );
+        } else {
+          const [name, path] = entry;
+          await injectScript(`${path}/web/${name}.js`, 'internal');
+        }
+      }
+      handleScriptLoaded('primed', 'internal');
+
+    } catch (error) {
+      console.error('Initialization failed:', error);
+    }
+  })();
+}
+
+// Start the injection process
+initializeInjector();
