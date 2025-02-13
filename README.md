@@ -1,3 +1,7 @@
+An effort to beautify the FoE-Extender code.
+
+Original description below: 
+
 # FoE-Extender bot for Forge of Empires game #
 
 This bot extension allows you to significantly expand the functionality of the game and automate routine actions. You will no longer need to make thousands of monotonous mouse clicks, you can get more pleasure from the gameplay!
